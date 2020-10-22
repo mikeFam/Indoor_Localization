@@ -26,7 +26,7 @@ from numpy import sqrt, square, sum
 # Hyper-parameters / CONSTANTS
 BP = 50 # Default Building Penalty
 FP = 4 # Default Floor Penalty
-COORDS_PROB = 10 # meters
+COORDS_PROB = 3 # meters
 
 def localizaion_error(prediction, truth):
     '''

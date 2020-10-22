@@ -15,6 +15,7 @@ from scripts.errors import compute_errors
 # imports packages for plotting
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import figure
+from matplotlib.pyplot import subplots
 import seaborn as sns
 from time import time
 
@@ -57,7 +58,7 @@ def data_loading_n_cleaning(datafile):
 
 def filter_out_low_WAPS(data, labels, num_samples):
     '''
-    Removes all features with the number of  below thresh
+    Removes all features with the number of  
     
     Parameters : data           : (DataFrame) Training Dataset
                  labels         : (DataFrame) Test Dataset
@@ -79,8 +80,8 @@ def filter_out_low_WAPS(data, labels, num_samples):
 
 def declaring_KNN_model(k, algorithm, leaf_size):
 
-    clf = KNeighborsClassifier(n_neighbors=k, algorithm=algorithm, leaf_size=leaf_size, p=1)
-    regr = KNeighborsRegressor(n_neighbors=k, algorithm=algorithm, leaf_size=leaf_size, p=1)
+    clf = KNeighborsClassifier(n_neighbors=k, weights='distance', algorithm=algorithm, leaf_size=leaf_size, p=1)
+    regr = KNeighborsRegressor(n_neighbors=k, weights='distance', algorithm=algorithm, leaf_size=leaf_size, p=1)
 
     return clf, regr
 
@@ -102,14 +103,13 @@ def threshold_variance(x_train, x_test, thresh):
     return x_train, x_test
 
 
-
 def create_subreport(errors, M, phone_id=None):
     '''
     This function takes the set of errors and formats their output into a
     string so that it can be reported to the console, saved to a text file, or
     both.
     
-    Parameters: errors     : (tuple) contains the four types of errors
+    Parameters: errors     : (tuple) contains the five types of errors
                 M          : (int) number of row elements in set
                 phone_id   : (int or None) None implies that its a total report
                 
@@ -117,9 +117,13 @@ def create_subreport(errors, M, phone_id=None):
     '''
     build_missclass, floor_missclass, coords_err, std_err, coor_pr_err = errors
     
+
+
     mean_c = mean(coords_err)
     std_c = std(coords_err)
-    
+
+    coords_err = coords_err.tolist()
+
     build_error = build_missclass / M * 100 # Percent Error
     floor_error = floor_missclass / M * 100 # Percent Error
     
@@ -133,13 +137,87 @@ def create_subreport(errors, M, phone_id=None):
     str5 = "Floor Percent Error: %.2f%%" % floor_error
     
     if coor_pr_err != "N/A":
-        str6 = "Prob that Coordinate Error Less than 10m: %.2f%%" %coor_pr_err    
+        str6 = "Prob that Coordinate Error Less than 3m: %.2f%%" %coor_pr_err    
     else:
         str6 = ""
     
     subreport = '\n'.join([str1, str2, str3, str4, str5, str6])
-    
+
+    #plot_coordinate_errors(coords_err, len(coords_err))
+    #plt.savefig('plot3.png')
+
     return subreport
+
+
+def plotting_changes_in_k(max_k, x_train, y_train, x_test, y_test):
+
+    mean_error = []
+    for k in range(1, max_k):
+        clf,regr = declaring_KNN_model(k = k,algorithm = 'ball_tree', leaf_size = 50)
+            # 1. Classification
+        # Fitting and making prediction for the Classification problem
+        fit = clf.fit(x_train, y_train[CATEGORICAL_COLUMNS])
+        prediction = fit.predict(x_test)
+
+        # Converting prediction into a DataFrame
+        clf_prediction = DataFrame(prediction, columns=CATEGORICAL_COLUMNS)
+
+        # 2. Regression 
+        # Fitting and making prediction for the Regression problem
+        fit = regr.fit(x_train, y_train[QUANTITATIVE_COLUMNS])
+        prediction = fit.predict(x_test)
+        regr_prediction = DataFrame(prediction, columns=QUANTITATIVE_COLUMNS)
+
+        prediction = concat((clf_prediction, regr_prediction), axis=1)
+
+        errors = compute_errors(prediction, y_test)
+        build_missclass, floor_missclass, coords_err, std_err, coor_pr_err = errors
+        mean_c = mean(coords_err)
+        mean_error.append(mean_c)
+    
+    plt.plot(range(1,max_k), mean_error)
+
+    return plt
+
+def plot_lat_vs_lon(prediction, truth, model_name):
+    '''
+    Plots the Latitude vs. Longitude. Since plotting may be turned off, the 
+    figure is returned so that it may be saved in the appropiate directory.
+    
+    Parameters: prediction : (DataFrame)
+                truth      : (DataFrame)
+                model_name : (str)
+                
+    Returns     fig        : (Figure)
+    '''
+    fig, ax = subplots()
+    fig.set_size_inches(20, 15)
+
+    title = "%s:\n " % (model_name)    
+    fig.suptitle(title)
+    
+    ax.scatter(prediction["LONGITUDE"], prediction["LATITUDE"],
+               label="Prediction")
+    
+    ax.scatter(truth["LONGITUDE"], truth["LATITUDE"], label="Ground Truth",s=7)
+    
+    ax.set_title("latitude vs. longitude")
+    ax.set_ylabel("latitude (meters)")
+    ax.set_xlabel("longitude (meters)")
+    
+    ax.legend()
+    ax.grid()
+
+    return fig
+
+
+def plot_coordinate_errors(coords_err, size):
+
+    plt.plot(range(1, size), coords_err)
+    plt.show()
+
+    return 
+
 
 if __name__ == "__main__":
 
@@ -167,6 +245,7 @@ if __name__ == "__main__":
     # Variance Threshholding 
     x_train, x_test = threshold_variance(x_train_o, x_test_o, thresh=0.00001)
     
+    # 1. Classification
     # Fitting and making prediction for the Classification problem
     fit = clf.fit(x_train, y_train[CATEGORICAL_COLUMNS])
     prediction = fit.predict(x_test)
@@ -174,23 +253,29 @@ if __name__ == "__main__":
     # Converting prediction into a DataFrame
     clf_prediction = DataFrame(prediction, columns=CATEGORICAL_COLUMNS)
 
+    # 2. Regression 
     # Fitting and making prediction for the Regression problem
-    fit = regr.fit(x_train_o, y_train[QUANTITATIVE_COLUMNS])
-    prediction = fit.predict(x_test_o)
+    fit = regr.fit(x_train, y_train[QUANTITATIVE_COLUMNS])
+    prediction = fit.predict(x_test)
     regr_prediction = DataFrame(prediction, columns=QUANTITATIVE_COLUMNS)
+    
 
+    # Compute errors
     # Prediction from both Classification and Regression 
     prediction = concat((clf_prediction, regr_prediction), axis=1)
 
     errors = compute_errors(prediction, y_test)
-
-    print (errors[0])
-    print (errors[1])
-    print (errors[2][100:150])
     
+
+    # Print report
     total_report = create_subreport(errors, y_test.shape[0])
     print('\n' + total_report + '\n')
 
+    fig = plot_lat_vs_lon(prediction, y_test, "Weighted-KNN")
+    fig.savefig('plot2.png')
+
+    #plotting_changes_in_k(30, x_train, y_train, x_test, y_test)
 
     toc = time() # Report program performance timer
+
     print("Program Timer: %.2f seconds" % (toc-tic))
